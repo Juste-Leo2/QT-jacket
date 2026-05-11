@@ -1,0 +1,21 @@
+Classe 0 : Rien / Bruit_de_fond (Mouvements du robot, bruits parasites).
+
+Classe 1 : Tapotement_Attention (Bras Gauche ou Droit) -> Pics courts.
+
+Classe 2 : Caresse_Réconfortante (Dos ou Bras) -> Pression légère, continue et glissante.
+
+Classe 3 : Chatouilles (Torse Gauche + Droit) -> Variations de pression rapides et irrégulières.
+
+Classe 4 : Étreinte / Câlin (Global) -> Pression enveloppante, croissante puis maintenue.
+
+Classe 5 : Agrippement_Fort (Zone isolée) -> Signal saturé, arrêt d'urgence.
+
+
+Acquisition: 5000 point par seconde par capteur
+décimation à 500 points * 5 Capteurs
+
+120 Exemples par classes, (répartition équitables)
+
+Réseau CNN:
+
+dimension [500, 5]
