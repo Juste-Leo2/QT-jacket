@@ -7,3 +7,4 @@ onnx
 onnxruntime
 matplotlib
 seaborn
+customtkinter
