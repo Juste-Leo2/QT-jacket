@@ -25,6 +25,10 @@ Cette architecture est utilisée pour classifier différents types de touchers s
 - **Jeu de données** : 120 exemples par classe (répartition équitable).
 - **Réseau CNN** : Dimension d'entrée `[500, 5]`.
 
+
+Découvre le [tutoriel](./tuto.md) pour commencer
+
+
 ## Licence
 
 Ce projet est sous licence **Apache License 2.0**.

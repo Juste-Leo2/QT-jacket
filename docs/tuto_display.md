@@ -1,7 +1,3 @@
-Voici ton README mis à jour, plus direct, sans la méthode X11, sans émojis, et adapté à tes paramètres réseau exacts :
-
----
-
 # Tutoriel : Afficher l'interface graphique du Raspberry Pi sur un PC Linux
 
 Étant donné que ton ordinateur principal est sous Linux, tu as un énorme avantage : Linux gère nativement l'affichage déporté. Tu n'as pas besoin d'installer de logiciels tiers lourds.

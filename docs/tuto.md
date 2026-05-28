@@ -1,7 +1,3 @@
-Voici le fichier `tuto.md` mis à jour, intégrant l'avertissement et le lien vers ton autre tutoriel `tuto_display.md` juste avant de lancer l'interface.
-
----
-
 # Tutoriel : Acquisition de données multi-capteurs (QT-Jacket)
 
 Ce tutoriel explique comment utiliser l'interface graphique pour enregistrer les données de plusieurs capteurs de votre veste vers un format adapté à l'Intelligence Artificielle (Machine Learning).

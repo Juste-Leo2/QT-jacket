@@ -25,6 +25,10 @@ This architecture is used to classify different types of touches on the robot's 
 - **Dataset**: 120 examples per class (equally distributed).
 - **CNN Network**: Input dimension `[500, 5]`.
 
+
+Check out the [tutorial](./docs/tuto.md) to get started
+
+
 ## License
 
 This project is licensed under the **Apache License 2.0**.
