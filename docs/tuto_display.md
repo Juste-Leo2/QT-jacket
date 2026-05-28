@@ -1,75 +1,68 @@
+Voici ton README mis à jour, plus direct, sans la méthode X11, sans émojis, et adapté à tes paramètres réseau exacts :
+
+---
+
 # Tutoriel : Afficher l'interface graphique du Raspberry Pi sur un PC Linux
 
-Étant donné que ton ordinateur principal est sous Linux, tu as un énorme avantage : Linux gère nativement l'affichage déporté (X11) ! Tu n'as pas besoin d'installer de logiciels tiers lourds comme sur Windows.
+Étant donné que ton ordinateur principal est sous Linux, tu as un énorme avantage : Linux gère nativement l'affichage déporté. Tu n'as pas besoin d'installer de logiciels tiers lourds.
 
-Voici les deux meilleures méthodes pour afficher l'interface graphique de `acquisition.py` sur ton PC.
-
----
-
-## Méthode 1 : Le "X11 Forwarding" via SSH (La plus rapide à tester)
-
-Le *X11 Forwarding* permet de faire passer la fenêtre de l'application à travers ta connexion SSH. L'interface s'ouvrira sur ton écran Linux comme si c'était une application locale.
-
-### Prérequis (sur le Raspberry Pi) :
-Il faut s'assurer que le Raspberry Pi autorise le transfert d'affichage.
-1. Connecte-toi normalement en SSH : `ssh pi@adresse_ip_du_pi`
-2. Ouvre le fichier de configuration SSH (optionnel, souvent activé par défaut) :
-   ```bash
-   sudo nano /etc/ssh/sshd_config
-   ```
-3. Cherche la ligne `X11Forwarding` et assure-toi qu'elle est sur `yes` :
-   ```text
-   X11Forwarding yes
-   ```
-4. Redémarre le service SSH si tu as fait une modification : `sudo systemctl restart ssh`
-
-### Comment l'utiliser :
-Depuis le terminal de ton **PC Linux**, au lieu d'utiliser `ssh` basique, ajoute l'option `-X` (ou `-Y` pour passer outre certaines sécurités locales, souvent recommandé) :
-
-```bash
-ssh -X pi@adresse_ip_du_pi
-# ou
-ssh -Y pi@adresse_ip_du_pi
-```
-
-Une fois connecté, navigue dans ton dossier et lance le script :
-```bash
-cd /chemin/vers/QT-jacket
-python acquisition.py
-```
-> **Résultat :** La fenêtre apparaîtra sur ton PC Linux. 
-> *Note : Comme l'interface met à jour des graphiques et des couleurs en temps réel, l'affichage via SSH `-X` peut parfois paraître légèrement saccadé si la connexion Wi-Fi n'est pas parfaite.*
+Voici la méthode la plus fiable pour afficher l'interface graphique de `acquisition.py` sur ton PC via le réseau local.
 
 ---
 
-## Méthode 2 : VNC (Pour plus de fluidité)
+## Méthode : VNC via TigerVNC (La plus fluide et fiable)
 
-Si le *X11 Forwarding* est trop lent ou saccadé à cause du réseau, VNC est l'alternative idéale. VNC compresse l'image du bureau complet du Raspberry Pi et te l'envoie.
+VNC compresse l'image du bureau complet du Raspberry Pi et te l'envoie. Le serveur VNC par défaut du Raspberry Pi utilise un chiffrement spécifique qui cause souvent des erreurs avec les clients standards. Il est donc fortement recommandé d'utiliser **TigerVNC**.
 
 ### 1. Activer VNC sur le Raspberry Pi
+
 Connecte-toi en SSH sur ton Pi et lance l'outil de configuration :
+
 ```bash
+ssh qt@192.168.100.3
 sudo raspi-config
-```
-- Va dans **Interface Options** (ou *Interfacing Options*).
-- Sélectionne **VNC** et choisis **Yes / Oui** pour l'activer.
-- Quitte l'outil (`Finish`).
 
-### 2. Installer un client VNC sur ton PC Linux
-Sur ton PC Linux, ouvre un terminal et installe un client VNC (par exemple `Remmina` ou `TigerVNC`, très courants sur Ubuntu/Debian) :
+```
+
+* Va dans **Interface Options** (ou *Interfacing Options*).
+* Sélectionne **VNC** et choisis **Yes / Oui** pour l'activer.
+* Quitte l'outil (`Finish`).
+
+### 2. Installer TigerVNC sur ton PC Linux
+
+Sur ton PC Linux, ouvre un terminal et installe le client VNC :
 
 ```bash
-# Sur Ubuntu / Debian :
-sudo apt install remmina
+# Sur Ubuntu / Debian / Linux Mint :
+sudo apt install tigervnc-viewer
 
-# Sur Arch Linux :
-sudo pacman -S remmina
+# Sur Arch Linux / Manjaro :
+sudo pacman -S tigervnc
+
 ```
 
 ### 3. Se connecter
-- Ouvre **Remmina** (ou ton client VNC) sur ton PC.
-- Crée une nouvelle connexion de type **VNC**.
-- Entre l'adresse IP de ton Raspberry Pi.
-- Connecte-toi avec tes identifiants (utilisateur `pi`, et ton mot de passe).
+
+* Ouvre l'application **TigerVNC Viewer** sur ton PC.
+* Dans la petite fenêtre qui apparaît, entre l'adresse IP de ton Raspberry Pi : **`192.168.100.3`**.
+* Clique sur **Connect**.
+* Entre ton mot de passe (ex: `qtrobot`) pour valider.
 
 > **Résultat :** Tu auras le bureau complet du Raspberry Pi affiché dans une fenêtre fluide. Ouvre un terminal dans ce bureau et lance ton script `acquisition.py` de manière tout à fait classique !
+
+---
+
+## Astuce : Résoudre l'accès à Internet
+
+Si ton Raspberry Pi est branché directement à ton PC avec un câble Ethernet (sur l'IP `192.168.100.3`) tout en étant connecté au Wi-Fi, et que **tu n'arrives pas à utiliser Internet**, c'est à cause d'un conflit de priorité réseau.
+
+Pour rediriger Internet vers le Wi-Fi sans couper ta connexion VNC locale, ouvre le terminal du Raspberry Pi (depuis ton bureau VNC) et tape cette commande :
+
+```bash
+sudo ip route del default via 192.168.100.1 dev eth0
+
+```
+
+Cette solution est temporaire. Au prochain redémarrage du Raspberry Pi, le comportement par défaut sera restauré.
+
+Retour au [tuto](./tuto.md)
