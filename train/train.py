@@ -20,9 +20,30 @@ set_seed(42)
 # ==========================================
 # 2. PRÉPARATION DES DONNÉES
 # ==========================================
-data = np.load('mes_donnees_tactiles.npz')
-X_numpy = data['X']  # Doit être [Batch, 5, 500]
-y_numpy = data['y']  # Doit être [Batch] avec des entiers de 0 à 5
+import os
+import glob
+
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+data_dir = os.path.join(base_dir, "data_collected")
+npz_files = glob.glob(os.path.join(data_dir, "class_*_100Hz_deriv.npz"))
+
+X_list = []
+y_list = []
+
+for filepath in npz_files:
+    filename = os.path.basename(filepath)
+    class_id = int(filename.split('_')[1])
+    
+    data = np.load(filepath)
+    for key in data.files:
+        sample = data[key]  # shape [500, 5]
+        # Transpose to [5, 500] for PyTorch Conv1d
+        sample = sample.transpose(1, 0)
+        X_list.append(sample)
+        y_list.append(class_id)
+
+X_numpy = np.array(X_list)  # [Batch, 5, 500]
+y_numpy = np.array(y_list)  # [Batch]
 
 # 80% train / 20% validation Répartie équitablement
 # Seed = 42 pour la reproductibilité
@@ -92,7 +113,7 @@ model = TactileNet()
 criterion = nn.CrossEntropyLoss() #Fonction Perte
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3) # Optimizer
 
-epochs = 15
+epochs = 300
 
 print("\n Lancement de l'entraînement...\n")
 
@@ -129,7 +150,8 @@ for epoch in range(epochs):
             
     val_acc = val_correct / val_total * 100
     
-    print(f"Époque {epoch+1:02d}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | Précision Train: {train_acc:.1f}% | Précision Val: {val_acc:.1f}%")
+    if (epoch + 1) % 10 == 0 or epoch == epochs - 1:
+        print(f"Époque {epoch+1:03d}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | Précision Train: {train_acc:.1f}% | Précision Val: {val_acc:.1f}%")
 
 print("\nEntraînement terminé !")
 
@@ -157,3 +179,10 @@ fig, ax = plt.subplots(figsize=(8, 6))
 disp.plot(cmap=plt.cm.Blues, ax=ax)
 plt.title("Matrice de Confusion - Données de Validation")
 plt.show()
+
+# ==========================================
+# 6. SAUVEGARDE DU MODÈLE
+# ==========================================
+model_path = os.path.join(base_dir, "tactile_model.pth")
+torch.save(model.state_dict(), model_path)
+print(f"\nModèle sauvegardé sous : {model_path}")

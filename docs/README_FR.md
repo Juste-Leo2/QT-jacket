@@ -7,7 +7,7 @@
 
 Ce dépôt est la suite du projet [QT-Touch](https://github.com/Juste-Leo2/QT-Touch).
 
-L'objectif de **QT-jacket** est d'étendre les scripts pour capter plus de capteurs d'une veste piézo-résistive et piézo-électrique.
+L'objectif de **QT-jacket** est d'étendre les scripts pour intégrer davantage de capteurs issus d'une veste piézo-résistive et piézo-électrique.
 
 <img src="arch.png" alt="Architecture TactileNet" width="500">
 
@@ -21,13 +21,24 @@ Cette architecture est utilisée pour classifier différents types de touchers s
 
 ### Acquisition et traitement des données
 - **Acquisition** : 1000 points par seconde (Hz) par capteur. Chaque événement d'acquisition dure 5 secondes, soit un total de 5000 points par événement.
-- **Traitement** : Décimation à 500 points * 5 capteurs.
+- **Traitement** : Décimation à 100 Hz (500 points * 5 capteurs) et dérivée numérique pour capturer les variations de pression temporelles.
 - **Jeu de données** : 120 exemples par classe (répartition équitable).
 - **Réseau CNN** : Dimension d'entrée `[500, 5]`.
 
 
-Découvre le [tutoriel](./tuto.md) pour commencer
+Découvre le [tutoriel](./tuto.md) pour commencer le setup Raspberry Pi et l'acquisition des données.
 
+### Installation Rapide (Entraînement & Export)
+```bash
+uv venv
+uv pip install -r requirements.txt
+uv run python train/preprocess_data.py
+uv run python train/train.py
+uv run python export_onnx.py
+```
+
+### Inférence
+Pour l'inférence sur Raspberry Pi ou tout autre appareil, vous n'avez besoin que du script `inference.py` et du fichier exporté `veste_model.onnx`. Le tutoriel contient toutes les informations nécessaires pour exécuter ce script.
 
 ## Licence
 

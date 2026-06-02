@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # ==========================================
 SPI_BUS = 0
 SPI_DEVICE = 0
-CANAUX = [0, 1, 2, 3, 4]  # 5 canaux (Bras G, Bras D, Torse 1, Torse 2, Dos)
+CANAUX = [4, 3, 0, 1, 2]  # 5 canaux (Bras G, Bras D, Torse G, Torse D, Dos)
 
 SPIDEV_AVAILABLE = False
 try:

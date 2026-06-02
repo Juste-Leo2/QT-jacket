@@ -26,8 +26,19 @@ This architecture is used to classify different types of touches on the robot's 
 - **CNN Network**: Input dimension `[500, 5]`.
 
 
-Check out the [tutorial](./docs/tuto.md) to get started
+Check out the [tutorial](./docs/tuto.md) to get started with the Raspberry Pi setup and data acquisition.
 
+### Quick Setup (Training & Export)
+```bash
+uv venv
+uv pip install -r requirements.txt
+uv run python train/preprocess_data.py
+uv run python train/train.py
+uv run python export_onnx.py
+```
+
+### Inference
+For inference on a Raspberry Pi or any local device, you only need the `inference.py` script and the exported `veste_model.onnx` file. The tutorial contains all the necessary details to set this up.
 
 ## License
 
