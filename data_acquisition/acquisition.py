@@ -73,13 +73,19 @@ class AcquisitionApp(ctk.CTk):
         # State
         self.current_class = None
         self.is_recording = False
+        self.is_waiting = False
         self.temp_data = None
+        self.running = True
+        self.recording_buffer = np.zeros((TOTAL_POINTS, 5))
+        self.recording_index = 0
+        self.read_counter = 0
         self.class_counts = {k: 0 for k in CLASSES.keys()}
         
         self.setup_data_folders()
         self.count_existing_data()
 
         self.build_ui()
+        threading.Thread(target=self.continuous_task, daemon=True).start()
         
     def setup_data_folders(self):
         if not os.path.exists(DATA_DIR):
@@ -165,10 +171,9 @@ class AcquisitionApp(ctk.CTk):
         self.status_label.pack(pady=20)
 
         # Class Buttons
-        self.buttons_frame = ctk.CTkFrame(self.right_frame)
-        self.buttons_frame.pack(fill="x", padx=10, pady=10)
-        
-        ctk.CTkLabel(self.buttons_frame, text="Lancer l'acquisition (5s)", font=("Arial", 14, "bold")).pack(pady=5)
+        ctk.CTkLabel(self.right_frame, text="Lancer l'acquisition (5s)", font=("Arial", 14, "bold")).pack(pady=5)
+        self.buttons_frame = ctk.CTkScrollableFrame(self.right_frame, height=150)
+        self.buttons_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.class_buttons = []
         for class_id, class_name in CLASSES.items():
@@ -188,7 +193,7 @@ class AcquisitionApp(ctk.CTk):
         self.btn_rejeter.pack(side="right", padx=10, pady=10, expand=True)
 
         # Stats
-        self.stats_frame = ctk.CTkFrame(self.right_frame)
+        self.stats_frame = ctk.CTkScrollableFrame(self.right_frame, height=150)
         self.stats_frame.pack(fill="both", expand=True, padx=10, pady=10)
         ctk.CTkLabel(self.stats_frame, text="Progression", font=("Arial", 14, "bold")).pack(pady=5)
         
@@ -214,22 +219,27 @@ class AcquisitionApp(ctk.CTk):
             self.canvas.itemconfig(self.sensor_shapes[i], fill=color)
 
     def start_acquisition(self, class_id):
-        if self.is_recording:
+        if self.is_recording or self.is_waiting:
             return
             
         self.current_class = class_id
-        self.is_recording = True
+        self.is_waiting = True
         self.toggle_buttons(False)
         self.btn_valider.configure(state="disabled")
         self.btn_rejeter.configure(state="disabled")
         
-        self.status_label.configure(text=f"Acquisition Classe {class_id}...", text_color="orange")
+        self.status_label.configure(text=f"Préparation (1s)...", text_color="yellow")
         self.ax.clear()
         self.ax.set_title("Aperçu des signaux bruts", color="white")
         self.canvas_plot.draw()
 
-        # Start thread
-        threading.Thread(target=self.acquisition_task, daemon=True).start()
+        self.after(1000, self.begin_recording)
+
+    def begin_recording(self):
+        self.is_waiting = False
+        self.is_recording = True
+        self.recording_index = 0
+        self.status_label.configure(text=f"Acquisition Classe {self.current_class}...", text_color="orange")
 
     def lire_mcp3008(self, canal):
         if not SPIDEV_AVAILABLE:
@@ -238,49 +248,46 @@ class AcquisitionApp(ctk.CTk):
         valeur = ((r[1] & 3) << 8) + r[2]
         return valeur
 
-    def acquisition_task(self):
-        data = np.zeros((TOTAL_POINTS, 5))
-        
-        # Variables to simulate patterns if no hardware
+    def continuous_task(self):
         sim_phase = 0.0
-        
         target_time = time.time()
         
-        for i in range(TOTAL_POINTS):
+        while self.running:
             row = []
             if SPIDEV_AVAILABLE:
                 for ch in CANAUX:
                     row.append(self.lire_mcp3008(ch))
             else:
                 # SIMULATION
-                # Base noise
                 noise = np.random.randint(0, 50, 5)
-                # Add some simulated pattern based on the class selected
                 pattern = np.zeros(5)
-                if self.current_class == 1: # Tapotement (pic court)
-                    if 1000 < i < 1200: pattern[0] = 600
-                elif self.current_class == 2: # Caresse (doux long)
-                    if 500 < i < 4500: pattern[2] = 300 + 100*np.sin(sim_phase)
-                elif self.current_class == 5: # Agrippement Fort
-                    if 1000 < i < 4000: pattern = np.array([800, 800, 800, 800, 800])
+                if self.is_recording:
+                    if self.current_class == 1:
+                        if 1000 < self.recording_index < 1200: pattern[0] = 600
+                    elif self.current_class == 2:
+                        if 500 < self.recording_index < 4500: pattern[2] = 300 + 100*np.sin(sim_phase)
+                    elif self.current_class == 5:
+                        if 1000 < self.recording_index < 4000: pattern = np.array([800, 800, 800, 800, 800])
                 
                 sim_phase += 0.01
                 row = np.clip(noise + pattern, 0, 1023)
                 
-            data[i] = row
-            
-            # Update visuals every 50 points to save GUI thread resources
-            if i % 50 == 0:
+            self.read_counter += 1
+            if self.read_counter % 50 == 0:
                 self.after(0, self.update_sensors_visual, row)
+                
+            if self.is_recording:
+                self.recording_buffer[self.recording_index] = row
+                self.recording_index += 1
+                if self.recording_index >= TOTAL_POINTS:
+                    self.is_recording = False
+                    self.temp_data = np.copy(self.recording_buffer)
+                    self.after(0, self.post_acquisition)
             
-            # Timing
             target_time += (1.0 / SAMPLING_RATE)
             sleep_time = target_time - time.time()
             if sleep_time > 0:
                 time.sleep(sleep_time)
-
-        self.temp_data = data
-        self.after(0, self.post_acquisition)
 
     def post_acquisition(self):
         self.is_recording = False
@@ -340,6 +347,7 @@ class AcquisitionApp(ctk.CTk):
     def reset_state(self, message):
         self.temp_data = None
         self.current_class = None
+        self.is_waiting = False
         self.btn_valider.configure(state="disabled")
         self.btn_rejeter.configure(state="disabled")
         self.toggle_buttons(True)
