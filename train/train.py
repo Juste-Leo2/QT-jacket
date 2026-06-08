@@ -1,3 +1,6 @@
+import argparse
+import os
+import glob
 import torch
 import torch.nn as nn
 import numpy as np
@@ -7,7 +10,19 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 
 # ==========================================
-# 1. LE POUVOIR DE LA SEED 42
+# 1. PARSING DES ARGUMENTS LIGNE DE COMMANDE
+# ==========================================
+def parse_args():
+    parser = argparse.ArgumentParser(description="Entraînement de TactileNet")
+    parser.add_argument("--dropout", action="store_true", help="Appliquer un dropout de 0.5 avant la classification")
+    parser.add_argument("--derivate", action="store_true", help="Utiliser les signaux dérivés (100Hz_deriv)")
+    parser.add_argument("--extend", action="store_true", help="Utiliser 10 canaux (combine signaux bruts et dérivés)")
+    return parser.parse_args()
+
+args = parse_args()
+
+# ==========================================
+# 2. LE POUVOIR DE LA SEED 42
 # ==========================================
 def set_seed(seed=42):
     np.random.seed(seed)
@@ -18,31 +33,69 @@ def set_seed(seed=42):
 set_seed(42)
 
 # ==========================================
-# 2. PRÉPARATION DES DONNÉES
+# 3. PRÉPARATION DES DONNÉES
 # ==========================================
-import os
-import glob
-
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_dir = os.path.join(base_dir, "data_collected")
-npz_files = glob.glob(os.path.join(data_dir, "class_*_100Hz_deriv.npz"))
+
+if args.extend:
+    # Recherche des fichiers de base (bruts), on chargera les dérivés dynamiquement
+    npz_files_base = glob.glob(os.path.join(data_dir, "class_*_100Hz.npz"))
+elif args.derivate:
+    # Recherche uniquement des dérivés
+    npz_files_base = glob.glob(os.path.join(data_dir, "class_*_100Hz_deriv.npz"))
+else:
+    # Recherche uniquement des bruts (comportement par défaut)
+    npz_files_base = glob.glob(os.path.join(data_dir, "class_*_100Hz.npz"))
 
 X_list = []
 y_list = []
 
-for filepath in npz_files:
+for filepath in npz_files_base:
     filename = os.path.basename(filepath)
     class_id = int(filename.split('_')[1])
     
-    data = np.load(filepath)
-    for key in data.files:
-        sample = data[key]  # shape [500, 5]
-        # Transpose to [5, 500] for PyTorch Conv1d
-        sample = sample.transpose(1, 0)
-        X_list.append(sample)
-        y_list.append(class_id)
+    # On ignore la classe 5 par sécurité, même si on est censé ne plus l'avoir acquise
+    if class_id == 5:
+        continue
+    
+    if args.extend:
+        # Combiner raw et deriv
+        filepath_deriv = filepath.replace("_100Hz.npz", "_100Hz_deriv.npz")
+        if not os.path.exists(filepath_deriv):
+            print(f"Attention, fichier dérivé manquant pour {filename}. On saute cet échantillon.")
+            continue
+            
+        data_raw = np.load(filepath)
+        data_deriv = np.load(filepath_deriv)
+        
+        for key in data_raw.files:
+            if key in data_deriv.files:
+                sample_raw = data_raw[key]      # shape [500, 5]
+                sample_deriv = data_deriv[key]  # shape [500, 5]
+                
+                # Concaténation le long de l'axe des canaux
+                sample_combined = np.concatenate([sample_raw, sample_deriv], axis=1) # [500, 10]
+                
+                # Transpose to [10, 500] for PyTorch Conv1d
+                sample_combined = sample_combined.transpose(1, 0)
+                X_list.append(sample_combined)
+                y_list.append(class_id)
+    else:
+        # Standard: charger juste le fichier ciblé
+        data = np.load(filepath)
+        for key in data.files:
+            sample = data[key]  # shape [500, 5]
+            # Transpose to [5, 500] for PyTorch Conv1d
+            sample = sample.transpose(1, 0)
+            X_list.append(sample)
+            y_list.append(class_id)
 
-X_numpy = np.array(X_list)  # [Batch, 5, 500]
+if len(X_list) == 0:
+    print("Erreur: Aucune donnée trouvée. Vérifiez que les fichiers NPZ sont présents dans data_collected.")
+    exit(1)
+
+X_numpy = np.array(X_list)  # [Batch, Channels, 500]
 y_numpy = np.array(y_list)  # [Batch]
 
 # 80% train / 20% validation Répartie équitablement
@@ -65,17 +118,23 @@ train_loader = DataLoader(TensorDataset(X_train_t, y_train_t), batch_size=32, sh
 val_loader   = DataLoader(TensorDataset(X_val_t, y_val_t), batch_size=32, shuffle=False)
 
 print(f"Entraînement : {len(X_train_t)} exemples | Validation : {len(X_val_t)} exemples")
+print(f"Shape des données d'entrée : {X_train_t.shape}")
 
 # ==========================================
-# 3. L'ARCHITECTURE : TACTILENET 
+# 4. L'ARCHITECTURE : TACTILENET 
 # ==========================================
 class TactileNet(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels=5, use_dropout=False):
         super().__init__()
+        
+        self.use_dropout = use_dropout
+        
+        # Normalisation des données en entrée
+        self.input_norm = nn.BatchNorm1d(num_features=in_channels)
         
         # Bloc 1 : On regarde les petites variations
         self.bloc1 = nn.Sequential(
-            nn.Conv1d(in_channels=5, out_channels=16, kernel_size=7, padding=3),
+            nn.Conv1d(in_channels=in_channels, out_channels=16, kernel_size=7, padding=3),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2)
         )
@@ -96,26 +155,38 @@ class TactileNet(nn.Module):
         )
         
         # Tête de décision
-        self.classifier = nn.Linear(in_features=64, out_features=6)
+        if self.use_dropout:
+            self.dropout = nn.Dropout(0.5)
+            
+        self.classifier = nn.Linear(in_features=64, out_features=5)
 
     def forward(self, x):
+        # Normalisation des données dès l'entrée du réseau
+        x = self.input_norm(x)
         x = self.bloc1(x)
         x = self.bloc2(x)
         x = self.bloc3(x)
         x = torch.flatten(x, 1)
+        
+        if self.use_dropout:
+            x = self.dropout(x)
+            
         x = self.classifier(x)
         return x
 
 # ==========================================
-# 4. LE MOTEUR D'ENTRAÎNEMENT
+# 5. LE MOTEUR D'ENTRAÎNEMENT
 # ==========================================
-model = TactileNet()
+num_channels = 10 if args.extend else 5
+model = TactileNet(in_channels=num_channels, use_dropout=args.dropout)
+
 criterion = nn.CrossEntropyLoss() #Fonction Perte
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3) # Optimizer
 
-epochs = 300
+# V2 used 500 epochs, V1 used 300 epochs. on garde 300 par défaut sauf s'il y a extend.
+epochs = 500 if args.extend else 300
 
-print("\n Lancement de l'entraînement...\n")
+print(f"\n Lancement de l'entraînement avec {num_channels} canaux (Dropout: {args.dropout}, Epochs: {epochs})...\n")
 
 for epoch in range(epochs):
     model.train()
@@ -156,7 +227,7 @@ for epoch in range(epochs):
 print("\nEntraînement terminé !")
 
 # ==========================================
-# 5. MATRICE DE CONFUSION SUR LA VALIDATION
+# 6. MATRICE DE CONFUSION SUR LA VALIDATION
 # ==========================================
 print("\n Génération de la matrice de confusion...")
 model.eval()
@@ -173,16 +244,37 @@ with torch.no_grad():
 
 # Calcul et affichage avec scikit-learn et matplotlib
 cm = confusion_matrix(all_labels, all_preds)
-disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[0, 1, 2, 3, 4, 5])
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[0, 1, 2, 3, 4])
 
 fig, ax = plt.subplots(figsize=(8, 6))
 disp.plot(cmap=plt.cm.Blues, ax=ax)
-plt.title("Matrice de Confusion - Données de Validation")
+titre_matrice = "Matrice de Confusion"
+if args.extend:
+    titre_matrice += " - 10 canaux"
+elif args.derivate:
+    titre_matrice += " - Signaux dérivés"
+else:
+    titre_matrice += " - Signaux bruts"
+    
+plt.title(titre_matrice)
 plt.show()
 
 # ==========================================
-# 6. SAUVEGARDE DU MODÈLE
+# 7. SAUVEGARDE DU MODÈLE
 # ==========================================
-model_path = os.path.join(base_dir, "tactile_model.pth")
+nom_modele = "tactile_model"
+if args.extend:
+    nom_modele += "_v2_10ch"
+elif args.derivate:
+    nom_modele += "_deriv"
+else:
+    nom_modele += "_raw"
+    
+if args.dropout:
+    nom_modele += "_drop"
+    
+nom_modele += ".pth"
+
+model_path = os.path.join(base_dir, nom_modele)
 torch.save(model.state_dict(), model_path)
 print(f"\nModèle sauvegardé sous : {model_path}")

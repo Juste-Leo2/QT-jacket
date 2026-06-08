@@ -11,13 +11,12 @@ The goal of **QT-jacket** is to extend the scripts to capture more sensors from 
 
 <img src="docs/arch.png" alt="Architecture TactileNet" width="500">
 
-This architecture is used to classify different types of touches on the robot's jacket. We defined 6 classes for the data acquisition:
+This architecture is used to classify different types of touches on the robot's jacket. We defined 5 classes for the data acquisition:
 - **Class 0 : Nothing / Background noise** (Robot movements, parasite noises).
 - **Class 1 : Tap_Attention** (Left or Right Arm) -> Short peaks.
 - **Class 2 : Comforting_Caress** (Back or Arm) -> Light, continuous and sliding pressure.
 - **Class 3 : Tickles** (Left + Right Torso) -> Fast and irregular pressure variations.
 - **Class 4 : Hug / Cuddle** (Global) -> Enveloping, increasing then maintained pressure.
-- **Class 5 : Strong_Grip** (Isolated area) -> Saturated signal.
 
 ### Data Acquisition and Processing
 - **Acquisition**: 1000 points per second (Hz) per sensor. Each acquisition event lasts 5 seconds, resulting in a total of 5000 points per event.

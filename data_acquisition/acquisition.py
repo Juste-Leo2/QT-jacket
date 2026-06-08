@@ -37,8 +37,7 @@ CLASSES = {
     1: "Tapotement Attention",
     2: "Caresse Réconfortante",
     3: "Chatouilles",
-    4: "Étreinte / Câlin",
-    5: "Agrippement Fort"
+    4: "Étreinte / Câlin"
 }
 
 SAMPLING_RATE = 1000  # Hz
@@ -266,8 +265,6 @@ class AcquisitionApp(ctk.CTk):
                         if 1000 < self.recording_index < 1200: pattern[0] = 600
                     elif self.current_class == 2:
                         if 500 < self.recording_index < 4500: pattern[2] = 300 + 100*np.sin(sim_phase)
-                    elif self.current_class == 5:
-                        if 1000 < self.recording_index < 4000: pattern = np.array([800, 800, 800, 800, 800])
                 
                 sim_phase += 0.01
                 row = np.clip(noise + pattern, 0, 1023)
