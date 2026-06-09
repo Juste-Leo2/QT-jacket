@@ -1,0 +1,18 @@
+# Environnements virtuels et cache Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Modèles entraînés (fichiers lourds/générés)
+*.pth
+*.onnx
+
+# Résultats d'entraînement (générés automatiquement)
+eval/*.csv
+eval/*.npy
+
+# Ignorer les données prétraitées
+data_collected/*_100Hz.npz
+data_collected/*_100Hz_deriv.npz

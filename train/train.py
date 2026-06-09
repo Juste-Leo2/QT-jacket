@@ -1,13 +1,14 @@
 import argparse
 import os
 import glob
+import csv
 import torch
 import torch.nn as nn
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+# matplotlib et ConfusionMatrixDisplay retirés car on fera les tracés ailleurs
 
 # ==========================================
 # 1. PARSING DES ARGUMENTS LIGNE DE COMMANDE
@@ -183,10 +184,18 @@ model = TactileNet(in_channels=num_channels, use_dropout=args.dropout)
 criterion = nn.CrossEntropyLoss() #Fonction Perte
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3) # Optimizer
 
-# V2 used 500 epochs, V1 used 300 epochs. on garde 300 par défaut sauf s'il y a extend.
-epochs = 500 if args.extend else 300
+# 500 époques avec dropout, 300 sans dropout
+epochs = 500 if args.dropout else 300
 
 print(f"\n Lancement de l'entraînement avec {num_channels} canaux (Dropout: {args.dropout}, Epochs: {epochs})...\n")
+
+history = {
+    "epoch": [],
+    "train_loss": [],
+    "train_acc": [],
+    "val_loss": [],
+    "val_acc": []
+}
 
 for epoch in range(epochs):
     model.train()
@@ -212,23 +221,68 @@ for epoch in range(epochs):
     model.eval()
     val_correct = 0
     val_total = 0
+    val_loss_total = 0
     
     with torch.no_grad():
         for batch_X, batch_y in val_loader:
             predictions = model(batch_X)
+            loss = criterion(predictions, batch_y)
+            val_loss_total += loss.item()
+            
             val_correct += (predictions.argmax(dim=1) == batch_y).sum().item()
             val_total += batch_y.size(0)
             
     val_acc = val_correct / val_total * 100
+    val_loss_avg = val_loss_total / len(val_loader)
+    train_loss_avg = total_loss / len(train_loader)
+    
+    # Enregistrement dans l'historique
+    history["epoch"].append(epoch + 1)
+    history["train_loss"].append(train_loss_avg)
+    history["train_acc"].append(train_acc)
+    history["val_loss"].append(val_loss_avg)
+    history["val_acc"].append(val_acc)
     
     if (epoch + 1) % 10 == 0 or epoch == epochs - 1:
-        print(f"Époque {epoch+1:03d}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | Précision Train: {train_acc:.1f}% | Précision Val: {val_acc:.1f}%")
+        print(f"Époque {epoch+1:03d}/{epochs} | Loss Train: {train_loss_avg:.4f} | Loss Val: {val_loss_avg:.4f} | Précision Train: {train_acc:.1f}% | Précision Val: {val_acc:.1f}%")
 
 print("\nEntraînement terminé !")
 
 # ==========================================
-# 6. MATRICE DE CONFUSION SUR LA VALIDATION
+# 6. SAUVEGARDE DES RESULTATS (EVAL)
 # ==========================================
+# Dossier d'évaluation
+eval_dir = os.path.join(base_dir, "eval")
+os.makedirs(eval_dir, exist_ok=True)
+
+# Nom de l'expérience en fonction des paramètres
+nom_exp = "tactile"
+if args.extend:
+    nom_exp += "_10ch"
+elif args.derivate:
+    nom_exp += "_deriv"
+else:
+    nom_exp += "_raw"
+    
+if args.dropout:
+    nom_exp += "_drop"
+
+# 6.1 Sauvegarde de l'historique CSV
+csv_path = os.path.join(eval_dir, f"history_{nom_exp}.csv")
+with open(csv_path, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["epoch", "train_loss", "train_acc", "val_loss", "val_acc"])
+    for i in range(len(history["epoch"])):
+        writer.writerow([
+            history["epoch"][i],
+            history["train_loss"][i],
+            history["train_acc"][i],
+            history["val_loss"][i],
+            history["val_acc"][i]
+        ])
+print(f"Historique sauvegardé sous : {csv_path}")
+
+# 6.2 Calcul et sauvegarde de la matrice de confusion
 print("\n Génération de la matrice de confusion...")
 model.eval()
 all_preds = []
@@ -238,43 +292,17 @@ with torch.no_grad():
     for batch_X, batch_y in val_loader:
         predictions = model(batch_X)
         predicted_classes = predictions.argmax(dim=1)
-        # Ajout des prédictions et vrais labels dans nos listes
         all_preds.extend(predicted_classes.cpu().numpy())
         all_labels.extend(batch_y.cpu().numpy())
 
-# Calcul et affichage avec scikit-learn et matplotlib
 cm = confusion_matrix(all_labels, all_preds)
-disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[0, 1, 2, 3, 4])
-
-fig, ax = plt.subplots(figsize=(8, 6))
-disp.plot(cmap=plt.cm.Blues, ax=ax)
-titre_matrice = "Matrice de Confusion"
-if args.extend:
-    titre_matrice += " - 10 canaux"
-elif args.derivate:
-    titre_matrice += " - Signaux dérivés"
-else:
-    titre_matrice += " - Signaux bruts"
-    
-plt.title(titre_matrice)
-plt.show()
+cm_path = os.path.join(eval_dir, f"cm_{nom_exp}.npy")
+np.save(cm_path, cm)
+print(f"Matrice de confusion sauvegardée sous : {cm_path}")
 
 # ==========================================
 # 7. SAUVEGARDE DU MODÈLE
 # ==========================================
-nom_modele = "tactile_model"
-if args.extend:
-    nom_modele += "_v2_10ch"
-elif args.derivate:
-    nom_modele += "_deriv"
-else:
-    nom_modele += "_raw"
-    
-if args.dropout:
-    nom_modele += "_drop"
-    
-nom_modele += ".pth"
-
-model_path = os.path.join(base_dir, nom_modele)
+model_path = os.path.join(base_dir, f"{nom_exp}_model.pth")
 torch.save(model.state_dict(), model_path)
 print(f"\nModèle sauvegardé sous : {model_path}")
