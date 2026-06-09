@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 
-# Labels tirés du README
-CLASS_LABELS = ['Nothing / Noise', 'Tap Attention', 'Comforting Caress', 'Tickles', 'Hug / Cuddle']
+# Labels tirés du README_FR
+CLASS_LABELS = ['Bruit de fond', 'Tapotement', 'Caresse', 'Chatouilles', 'Câlin']
 
 def plot_confusion_matrices():
     # Définition des fichiers attendus (Numpy arrays sauvegardés par train.py)
@@ -45,9 +45,7 @@ def plot_confusion_matrices():
             ax.axis('off')
 
     plt.suptitle("Comparaison des Matrices de Confusion", fontsize=16)
-    plt.tight_layout()
-    # Ajuster le haut pour laisser de la place au suptitle
-    plt.subplots_adjust(top=0.92)
+    plt.tight_layout(rect=[0, 0.08, 1, 0.95], h_pad=3.0, w_pad=2.0)
     plt.show()
 
 if __name__ == "__main__":

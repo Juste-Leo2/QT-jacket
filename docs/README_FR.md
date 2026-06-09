@@ -32,12 +32,26 @@ Découvre le [tutoriel](./tuto.md) pour commencer le setup Raspberry Pi et l'acq
 uv venv
 uv pip install -r requirements.txt
 uv run python train/preprocess_data.py
-uv run python train/train.py
-uv run python export_onnx.py
+
+# Entraînement (Meilleure Configuration : Dérivée + Dropout)
+uv run python train/train.py --derivate --dropout
+
+# Autres options disponibles :
+# uv run python train/train.py                  # Base classique (5 canaux bruts)
+# uv run python train/train.py --extend         # 10 canaux
+
+# Exporter le modèle entraîné vers ONNX pour le Raspberry Pi
+uv run python export_onnx.py --derivate --dropout
 ```
 
+### Performances et Résultats
+Voici l'évolution des performances d'entraînement ainsi que les matrices de confusion générées :
+
+<img src="loss.png" alt="Loss & Accuracy d'entraînement" width="800">
+<img src="matrix.png" alt="Matrices de confusion" width="800">
+
 ### Inférence
-Pour l'inférence sur Raspberry Pi ou tout autre appareil, vous n'avez besoin que du script `inference.py` et du fichier exporté `veste_model.onnx`. Le tutoriel contient toutes les informations nécessaires pour exécuter ce script.
+Pour l'inférence sur Raspberry Pi ou tout autre appareil, vous n'avez besoin que du script `inference.py` et du fichier exporté `tactile_deriv_drop_model.onnx`. Le tutoriel contient toutes les informations nécessaires pour exécuter ce script.
 
 ## Licence
 

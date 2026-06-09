@@ -32,12 +32,26 @@ Check out the [tutorial](./docs/tuto.md) to get started with the Raspberry Pi se
 uv venv
 uv pip install -r requirements.txt
 uv run python train/preprocess_data.py
-uv run python train/train.py
-uv run python export_onnx.py
+
+# Training (Best Configuration: Derivative + Dropout)
+uv run python train/train.py --derivate --dropout
+
+# Other available options:
+# uv run python train/train.py                  # Raw baseline (5 channels)
+# uv run python train/train.py --extend         # 10 channels
+
+# Export the trained model to ONNX for the Raspberry Pi
+uv run python export_onnx.py --derivate --dropout
 ```
 
+### Performance & Results
+Here is the evolution of the training performances and the resulting confusion matrices:
+
+<img src="docs/loss.png" alt="Training Loss & Accuracy" width="800">
+<img src="docs/matrix.png" alt="Confusion Matrices" width="800">
+
 ### Inference
-For inference on a Raspberry Pi or any local device, you only need the `inference.py` script and the exported `veste_model.onnx` file. The tutorial contains all the necessary details to set this up.
+For inference on a Raspberry Pi or any local device, you only need the `inference.py` script and the exported `tactile_deriv_drop_model.onnx` file. The tutorial contains all the necessary details to set this up.
 
 ## License
 

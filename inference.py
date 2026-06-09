@@ -15,16 +15,15 @@ PORT = 65432
 # --- PARAMÈTRES IA / SIGNAL ---
 ACQUISITION_FREQ = 1000       # 1kHz d'acquisition matérielle
 DOWNSAMPLING = 10             # Moyenne tous les 10 points (-> 100Hz effectifs)
-MODEL_PATH = "veste_model.onnx"
+MODEL_PATH = "tactile_deriv_drop_model.onnx"
 
-# Nos 6 classes telles que définies dans le README
+# Nos 5 classes (la 6ème "Prise_Forte" n'est plus utilisée)
 CLASSES = [
     "Rien / Bruit", 
     "Tape_Attention", 
     "Caresse_Reconfortante", 
     "Chatouilles", 
-    "Calin", 
-    "Prise_Forte"
+    "Calin"
 ]
 
 WINDOW_SIZE = 500             # 500 points à 100Hz = 5 secondes (identique à l'entraînement)

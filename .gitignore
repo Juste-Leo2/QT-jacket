@@ -5,9 +5,9 @@ env/
 __pycache__/
 *.pyc
 
-# Modèles entraînés (fichiers lourds/générés)
-*.pth
-*.onnx
+# Les modèles sont de petite taille, on les garde sur Git pour éviter de devoir les ré-entraîner
+# *.pth
+# *.onnx
 
 # Résultats d'entraînement (générés automatiquement)
 eval/*.csv
