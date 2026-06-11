@@ -21,8 +21,7 @@ class TactileNet(nn.Module):
         super().__init__()
         self.use_dropout = use_dropout
         
-        # Normalisation des données en entrée
-        self.input_norm = nn.BatchNorm1d(num_features=in_channels)
+        self.input_norm = nn.BatchNorm1d(in_channels)
         
         self.bloc1 = nn.Sequential(
             nn.Conv1d(in_channels=in_channels, out_channels=16, kernel_size=7, padding=3),

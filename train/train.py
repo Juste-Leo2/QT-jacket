@@ -96,7 +96,9 @@ if len(X_list) == 0:
     print("Erreur: Aucune donnée trouvée. Vérifiez que les fichiers NPZ sont présents dans data_collected.")
     exit(1)
 
-X_numpy = np.array(X_list)  # [Batch, Channels, 500]
+X_numpy = np.array(X_list, dtype=np.float32)  # [Batch, Channels, 500]
+# >>> NORMALISATION <<<
+X_numpy = X_numpy / 1023.0
 y_numpy = np.array(y_list)  # [Batch]
 
 # 80% train / 20% validation Répartie équitablement
@@ -130,8 +132,7 @@ class TactileNet(nn.Module):
         
         self.use_dropout = use_dropout
         
-        # Normalisation des données en entrée
-        self.input_norm = nn.BatchNorm1d(num_features=in_channels)
+        self.input_norm = nn.BatchNorm1d(in_channels)
         
         # Bloc 1 : On regarde les petites variations
         self.bloc1 = nn.Sequential(
@@ -162,7 +163,6 @@ class TactileNet(nn.Module):
         self.classifier = nn.Linear(in_features=64, out_features=5)
 
     def forward(self, x):
-        # Normalisation des données dès l'entrée du réseau
         x = self.input_norm(x)
         x = self.bloc1(x)
         x = self.bloc2(x)
@@ -181,7 +181,7 @@ class TactileNet(nn.Module):
 num_channels = 10 if args.extend else 5
 model = TactileNet(in_channels=num_channels, use_dropout=args.dropout)
 
-criterion = nn.CrossEntropyLoss() #Fonction Perte
+criterion = nn.CrossEntropyLoss(label_smoothing=0.15)
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3) # Optimizer
 
 # 500 époques avec dropout, 300 sans dropout

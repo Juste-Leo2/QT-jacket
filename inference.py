@@ -13,11 +13,11 @@ HOST = '0.0.0.0'
 PORT = 65432
 
 # --- PARAMÈTRES IA / SIGNAL ---
-ACQUISITION_FREQ = 1000       # 1kHz d'acquisition matérielle
-DOWNSAMPLING = 10             # Moyenne tous les 10 points (-> 100Hz effectifs)
+ACQUISITION_FREQ = 1000        # 1kHz d'acquisition matérielle
+DOWNSAMPLING = 10              # Moyenne tous les 10 points (-> Vrai 100Hz effectif)
 MODEL_PATH = "tactile_deriv_drop_model.onnx"
 
-# Nos 5 classes (la 6ème "Prise_Forte" n'est plus utilisée)
+# Nos 5 classes
 CLASSES = [
     "Rien / Bruit", 
     "Tape_Attention", 
@@ -26,20 +26,27 @@ CLASSES = [
     "Calin"
 ]
 
-WINDOW_SIZE = 500             # 500 points à 100Hz = 5 secondes (identique à l'entraînement)
-INFERENCE_STRIDE = 20          # 1 prédiction tous les 5 points (soit 20 prédictions par seconde)
-VOTE_WINDOW_SIZE = 5          
-SCORE_THRESHOLD = 0.80        
-SEUIL_STABILITE = 0.5         # Écart-type minimum pour déclencher l'IA (à ajuster empiriquement)
+# Pondération neutre (le Z-score fait le travail)
+CLASS_WEIGHTS = np.array([1.0, 0.3, 1.0, 1.0, 1.0]) 
 
-# Paramètres de confirmation
-CONFIRMATION_SIZE = 3         # 3 votes majoritaires consécutifs identiques pour valider un geste
-COOLDOWN_DELAY = 5.0          # 5 secondes de pause après avoir détecté un geste
+WINDOW_SIZE = 500              
+INFERENCE_STRIDE = 300         
+
+# On garde un seuil un peu plus bas (0.50) car le Label Smoothing 
+# empêche le modèle de monter à 99% de certitude.
+SCORE_THRESHOLD = 0.50        
+
+# Le signal n'est plus divisé par 1023, on remet le seuil d'ADC brut à 0.5
+SEUIL_STABILITE = 0.5       
+
+VOTE_WINDOW_SIZE = 2           
+CONFIRMATION_SIZE = 2          
+COOLDOWN_DELAY = 5.0           
 
 # --- CONFIGURATION MATÉRIELLE (SPI) ---
 SPI_BUS = 0
 SPI_DEVICE = 0
-CANAUX = [4, 3, 0, 1, 2]      # Ordre des 5 capteurs (Bras G, Bras D, Torse G, Torse D, Dos)
+CANAUX = [4, 3, 0, 1, 2]       
 
 SPIDEV_AVAILABLE = False
 try:
@@ -48,20 +55,19 @@ try:
     spi.open(SPI_BUS, SPI_DEVICE)
     spi.max_speed_hz = 1350000
     SPIDEV_AVAILABLE = True
-    print("Spidev initialisé avec succès pour l'inférence. Mode Réel.")
 except Exception as e:
-    print(f"ATTENTION: Module spidev non trouvé ({e}). Simulation activée.")
+    pass 
 
 def read_adc(canal):
-    """Lecture d'un canal MCP3008 via SPI"""
     if SPIDEV_AVAILABLE:
         r = spi.xfer2([1, (8 + canal) << 4, 0])
         val = ((r[1] & 3) << 8) + r[2]
         return val
     else:
-        # Simulation d'un signal plat avec un peu de bruit
         return 512 + np.random.randint(-10, 10)
 
+def clear_terminal():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 class GestureThread(threading.Thread):
     def __init__(self, client_socket=None):
@@ -69,38 +75,31 @@ class GestureThread(threading.Thread):
         self.client_socket = client_socket
         self.running = True
         
-        # --- CHARGEMENT DU MODÈLE ONNX ---
-        print(f"[Thread] Chargement du modèle ONNX: {MODEL_PATH}")
+        clear_terminal()
+        print(f"--- Démarrage Serveur Veste (PID: {os.getpid()}) ---")
+        
         if not os.path.exists(MODEL_PATH):
-            print(f"ERREUR: {MODEL_PATH} introuvable. Avez-vous exécuté export_onnx.py ?")
+            print(f"ERREUR: {MODEL_PATH} introuvable.")
             self.running = False
             return
 
         try:
             self.session = ort.InferenceSession(MODEL_PATH)
             self.input_name = self.session.get_inputs()[0].name
-            print("[Thread] Modèle chargé avec succès.")
+            print("Modèle chargé avec succès.")
         except Exception as e:
-            print(f"[Thread] Erreur ONNX: {e}")
+            print(f"Erreur ONNX: {e}")
             self.running = False
 
-        # Buffers de données : chaque élément du raw_buffer contiendra 5 valeurs (les 5 capteurs)
         self.raw_buffer = collections.deque(maxlen=WINDOW_SIZE)
         self.vote_buffer = collections.deque(maxlen=VOTE_WINDOW_SIZE)
         self.confirmation_buffer = collections.deque(maxlen=CONFIRMATION_SIZE)
+        self.historique_gestes = collections.deque(maxlen=5) 
         
-        # Accumulateur pour faire la moyenne de sous-échantillonnage
         self.accumulator = []
-
-        # Initialisation "Intelligente" pour éviter de détecter un faux mouvement au démarrage
         self._reset_buffers(initial_fill=True)
 
     def _reset_buffers(self, initial_fill=False):
-        """
-        Vide tous les buffers.
-        Si initial_fill=True, on lit les capteurs pour remplir le buffer avec l'état statique actuel,
-        ce qui assure une dérivée nulle au démarrage.
-        """
         self.vote_buffer.clear()
         for _ in range(VOTE_WINDOW_SIZE): 
             self.vote_buffer.append(0)
@@ -112,7 +111,6 @@ class GestureThread(threading.Thread):
             vals = []
             for _ in range(10):
                 vals.append([read_adc(c) for c in CANAUX])
-            # Moyenne des capteurs sur 10 lectures rapides
             avg_start = np.mean(vals, axis=0) 
             
             self.raw_buffer.clear()
@@ -120,116 +118,133 @@ class GestureThread(threading.Thread):
                 self.raw_buffer.append(avg_start)
 
     def run(self):
-        print("[Thread] Démarrage de la boucle d'inférence temps réel...")
+        print("Démarrage de la boucle d'inférence temps réel dans 2 secondes...")
+        time.sleep(2)
         points_processed_counter = 0 
         
         while self.running:
             try:
                 loop_start = time.time()
                 
-                # 1. ACQUISITION (1kHz pour les 5 canaux)
                 current_vals = [read_adc(c) for c in CANAUX]
                 self.accumulator.append(current_vals)
                 
-                # 2. SOUS-ÉCHANTILLONNAGE (Vers 100Hz)
                 if len(self.accumulator) >= DOWNSAMPLING:
-                    # Moyenne sur 10 points le long des colonnes (axis=0)
                     avg_val = np.mean(self.accumulator, axis=0)
                     self.accumulator = []
                     
                     self.raw_buffer.append(avg_val)
                     points_processed_counter += 1
                     
-                    # 3. INFÉRENCE (Une fois tous les INFERENCE_STRIDE points)
+                    valeurs_str = " | ".join([f"C{i}:{int(v):>4}" for i, v in enumerate(avg_val)])
+                    sys.stdout.write(f"\r[CAPTEURS 100Hz] {valeurs_str} ")
+                    sys.stdout.flush()
+                    
                     if points_processed_counter % INFERENCE_STRIDE == 0:
-                        # Matrice de forme (500, 5)
+                        
                         raw_signal = np.array(self.raw_buffer, dtype=np.float32)
                         
                         ecart_type = np.std(raw_signal)
                         instant_pred = 0
                         
-                        # Optimisation : On ne déclenche l'IA que si le signal n'est pas plat
+                        clear_terminal()
+                        print("=" * 70)
+                        print("🤖 --- TABLEAU DE BORD IA (Mise à jour toutes les 3s) --- 🤖")
+                        print("=" * 70)
+                        print(f"Écart-type du signal : {ecart_type:.2f} (Seuil d'éveil: {SEUIL_STABILITE})")
+                        print("-" * 70)
+                        print(f"Derniers gestes validés : {list(self.historique_gestes) if self.historique_gestes else 'Aucun'}")
+                        print("-" * 70)
+                        
                         if ecart_type >= SEUIL_STABILITE:
                             
-                            # 3.1 Calcul de la dérivée (comme dans preprocess_data.py)
-                            # Différence point par point sur l'axe du temps (axis=0)
+                            # 1. Calcul de la dérivée
                             derivative = np.diff(raw_signal, axis=0)
-                            
-                            # Ajout d'une ligne de zéros au début pour conserver la taille de 500 points
                             pad_zeros = np.zeros((1, 5), dtype=np.float32)
                             derivative = np.vstack((pad_zeros, derivative))
                             
-                            # 3.2 Formatage pour le modèle PyTorch
-                            # Actuellement: [500 points, 5 canaux]. Attendu: [1 batch, 5 canaux, 500 points]
+                            # 2. Formatage [Batch=1, Canaux=5, Temps=500]
                             input_data = derivative.transpose(1, 0)
                             input_data = input_data.reshape(1, 5, WINDOW_SIZE)
                             
-                            # 3.3 Lancement ONNX
+                            # Normalisation
+                            input_data = input_data / 1023.0
+                            
+                            # 3. Lancement ONNX
                             outputs = self.session.run(None, {self.input_name: input_data})
                             
-                            # 3.4 Softmax pour obtenir les probabilités (0 à 1)
+                            # 4. Calcul du Softmax
                             exp_preds = np.exp(outputs[0][0])
-                            probs = exp_preds / np.sum(exp_preds)
+                            raw_probs = exp_preds / np.sum(exp_preds)
                             
-                            if np.max(probs) > SCORE_THRESHOLD:
-                                instant_pred = np.argmax(probs)
+                            # Pondération neutre
+                            weighted_probs = raw_probs * CLASS_WEIGHTS
+                            final_probs = weighted_probs / np.sum(weighted_probs)
+                            
+                            probs_str = " | ".join([f"{CLASSES[i]}:{final_probs[i]*100:>3.0f}%" for i in range(len(CLASSES))])
+                            print(f"\n[PROBABILITÉS] {probs_str}")
+                            
+                            if np.max(final_probs) > SCORE_THRESHOLD:
+                                instant_pred = np.argmax(final_probs)
+                        else:
+                            print("\n[IA EN VEILLE] Signal trop faible, en attente de mouvement...")
                         
-                        # --- LOGIQUE DE VOTE ---
-                        # 1. Vote court terme (Lissage des prédictions instantanées)
                         self.vote_buffer.append(instant_pred)
                         winner_class, _ = Counter(self.vote_buffer).most_common(1)[0]
                         
-                        # 2. Vote de confirmation (Empêche les faux positifs sporadiques)
+                        if ecart_type >= SEUIL_STABILITE:
+                            noms_vote_buffer = [CLASSES[v] for v in self.vote_buffer]
+                            print(f"[VOTE CT]      Préd. Instant: {CLASSES[instant_pred]:<21}")
+                            print(f"               Gagnant CT   : {CLASSES[winner_class]:<21} | Buffer: {noms_vote_buffer}")
+                        
                         self.confirmation_buffer.append(winner_class)
 
                         if len(self.confirmation_buffer) == CONFIRMATION_SIZE:
                             unique_votes = set(self.confirmation_buffer)
                             
-                            # Si les N derniers votes lissés sont IDENTIQUES et NON NULS
+                            if ecart_type >= SEUIL_STABILITE:
+                                noms_conf_buffer = [CLASSES[v] for v in self.confirmation_buffer]
+                                print(f"[CONFIRMATION] Buffer : {noms_conf_buffer}")
+                            
                             if len(unique_votes) == 1:
                                 confirmed_gesture = list(unique_votes)[0]
                                 
                                 if confirmed_gesture != 0:
                                     nom = CLASSES[confirmed_gesture]
-                                    print(f">>> GESTE DÉTECTÉ ET VALIDÉ : {nom} <<<")
+                                    print("\n" + "★" * 50)
+                                    print(f"  >>> GESTE DÉTECTÉ ET VALIDÉ : {nom} <<<")
+                                    print("★" * 50 + "\n")
                                     
-                                    # Envoi au PC via Socket s'il est connecté
+                                    heure = time.strftime("%H:%M:%S")
+                                    self.historique_gestes.append(f"{nom} ({heure})")
+                                    
                                     if self.client_socket is not None:
                                         try:
                                             self.client_socket.sendall((nom + '\n').encode('utf-8'))
                                         except (BrokenPipeError, ConnectionResetError):
-                                            print("[Thread] Connexion PC perdue.")
                                             self.client_socket = None
                                     
-                                    # --- PAUSE RÉFRACTAIRE ---
-                                    # On bloque l'analyse pour ne pas redétecter le même geste 10 fois
-                                    print(f"[Thread] Pause de {COOLDOWN_DELAY}s (Stabilisation)...")
-                                    time.sleep(COOLDOWN_DELAY)
-                                    
-                                    # --- RESET COMPLET ---
-                                    print("[Thread] Reprise de l'écoute.")
                                     self._reset_buffers(initial_fill=True)
                                     continue 
+                        
+                        print("\n")
 
-                # 4. CADENCEMENT STRICT (1kHz)
                 elapsed = time.time() - loop_start
                 sleep_time = (1.0 / ACQUISITION_FREQ) - elapsed
                 if sleep_time > 0:
                     time.sleep(sleep_time)
             
             except Exception as e:
-                print(f"[Thread] Erreur fatale boucle: {e}")
+                print(f"\n[Thread] Erreur fatale boucle: {e}")
                 self.running = False
 
     def stop(self):
         self.running = False
 
-
-# --- POINT D'ENTRÉE DU SCRIPT ---
 if __name__ == "__main__":
-    print(f"--- Serveur d'inférence Veste (PID: {os.getpid()}) ---")
-    sys.stdout.flush()
-
+    clear_terminal()
+    print("Initialisation Réseau...")
+    
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
@@ -237,27 +252,19 @@ if __name__ == "__main__":
     try:
         server_socket.bind((HOST, PORT))
         server_socket.listen(1)
-        
-        # TIMEOUT TRÈS IMPORTANT : Le serveur n'attendra qu'une seconde.
-        # S'il n'y a pas de PC qui s'y connecte, il passera quand même à la suite
-        # et fonctionnera en mode Autonome (parfait pour le Raspberry Pi seul).
         server_socket.settimeout(1.0) 
         
         print(f"En attente de connexion du PC sur {HOST}:{PORT} (Facultatif)...")
-        sys.stdout.flush()
-        
         try:
             client, addr = server_socket.accept()
             print(f"--- PC Hôte Connecté : {addr} ---")
-            client.settimeout(None) # Remettre le client en mode bloquant standard
+            client.settimeout(None)
         except socket.timeout:
             print("--- Aucun PC connecté. Lancement en mode AUTONOME. ---")
         
-        # On lance le thread d'inférence (en lui passant le client si on en a un, ou None)
         gesture_thread = GestureThread(client)
         gesture_thread.start()
         
-        # Le thread principal (main) attend juste que le sous-thread se termine
         while gesture_thread.is_alive():
             time.sleep(1)
             
@@ -266,10 +273,10 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Erreur globale dans le Main: {e}")
     finally:
-        print("Nettoyage et fermeture des connexions...")
         if 'gesture_thread' in locals():
             gesture_thread.stop()
             gesture_thread.join()
         if client is not None:
             client.close()
         server_socket.close()
+        print("Serveur éteint proprement.")
